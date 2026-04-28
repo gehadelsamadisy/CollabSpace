@@ -1,8 +1,0 @@
-node_modules/
-dist/
-.env
-*.db
-collabspace.db
-.DS_Store
-*.md
-!README.md
