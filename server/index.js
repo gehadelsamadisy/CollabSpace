@@ -13,12 +13,20 @@ const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] }
 });
 
-const JWT_SECRET = 'collabspace-secret-key-2024';
+const JWT_SECRET = process.env.JWT_SECRET || 'collabspace-secret-key-2024';
 const PORT = process.env.PORT || 3001;
-const DB_FILE = 'collabspace.db';
+const DB_FILE = process.env.DB_FILE || 'collabspace.db';
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.CLIENT_URL 
+    : '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE']
+}));
 app.use(express.json());
+
+const isProduction = process.env.NODE_ENV === 'production';
 
 let db;
 

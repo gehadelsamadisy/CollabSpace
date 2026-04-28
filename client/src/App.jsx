@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from '
 import { useState, useEffect, createContext, useContext } from 'react';
 import { io } from 'socket.io-client';
 
-const API_URL = 'http://localhost:3001';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const socket = io(API_URL);
 
 const AuthContext = createContext();
