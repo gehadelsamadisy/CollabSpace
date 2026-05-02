@@ -49,6 +49,23 @@ npm run build
 
 The built files will be in `client/dist/`
 
+### Docker
+
+Run the app in a single container with no setup required:
+
+```bash
+docker build -t collabspace .
+docker run -p 3001:3001 collabspace
+```
+
+Then open [http://localhost:3001](http://localhost:3001).
+
+To persist the database across restarts:
+
+```bash
+docker run -p 3001:3001 -v collabdata:/app collabspace
+```
+
 ## Project Structure
 
 ```
