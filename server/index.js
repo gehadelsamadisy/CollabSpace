@@ -6,6 +6,7 @@ const initSqlJs = require('sql.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -13,14 +14,15 @@ const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST'] }
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'collabspace-secret-key-2024';
+require('dotenv').config();
+const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-env-file';
 const PORT = process.env.PORT || 3001;
 const DB_FILE = process.env.DB_FILE || 'collabspace.db';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? process.env.CLIENT_URL 
+  origin: process.env.NODE_ENV === 'production'
+    ? process.env.CLIENT_URL
     : '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE']
 }));
@@ -198,6 +200,7 @@ app.post('/api/documents', authenticate, (req, res) => {
   const lastId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0];
   db.run('INSERT INTO document_access (document_id, user_id) VALUES (?, ?)', [lastId, req.userId]);
   saveDb();
+  io.emit('documents-updated');
   const result = db.exec('SELECT * FROM documents WHERE id = ?', [lastId]);
   const cols = result[0].columns;
   res.json(rowToObj(result[0].values, cols)[0]);
@@ -220,7 +223,7 @@ app.post('/api/documents/:id/share', authenticate, (req, res) => {
   try {
     db.run('INSERT INTO document_access (document_id, user_id) VALUES (?, ?)', [req.params.id, userId]);
     saveDb();
-    io.to(`doc-${req.params.id}`).emit('user-shared', { documentId: parseInt(req.params.id), userId });
+    io.emit('documents-shared');
     res.json({ success: true });
   } catch {
     res.status(400).json({ error: 'Already shared with this user' });
@@ -242,6 +245,7 @@ app.delete('/api/documents/:id', authenticate, (req, res) => {
   db.run('DELETE FROM document_access WHERE document_id = ?', [req.params.id]);
   db.run('DELETE FROM documents WHERE id = ? AND owner_id = ?', [req.params.id, req.userId]);
   saveDb();
+  io.emit('document-deleted', { id: req.params.id });
   res.json({ success: true });
 });
 
@@ -268,6 +272,7 @@ app.post('/api/boards', authenticate, (req, res) => {
   db.run('INSERT INTO task_columns (board_id, title, position) VALUES (?, ?, ?)', [boardId, 'Cancelled', 3]);
   db.run('INSERT INTO board_access (board_id, user_id) VALUES (?, ?)', [boardId, req.userId]);
   saveDb();
+  io.emit('boards-updated');
   res.json({ id: boardId, name });
 });
 
@@ -316,7 +321,7 @@ app.post('/api/boards/:id/share', authenticate, (req, res) => {
   try {
     db.run('INSERT INTO board_access (board_id, user_id) VALUES (?, ?)', [req.params.id, userId]);
     saveDb();
-    io.to(`board-${req.params.id}`).emit('user-shared', { boardId: parseInt(req.params.id), userId });
+    io.emit('boards-shared');
     res.json({ success: true });
   } catch {
     res.status(400).json({ error: 'Already shared with this user' });
@@ -332,6 +337,7 @@ app.delete('/api/boards/:id', authenticate, (req, res) => {
   db.run('DELETE FROM task_columns WHERE board_id = ?', [req.params.id]);
   db.run('DELETE FROM task_boards WHERE id = ? AND owner_id = ?', [req.params.id, req.userId]);
   saveDb();
+  io.emit('board-deleted', { id: req.params.id });
   res.json({ success: true });
 });
 
@@ -375,7 +381,7 @@ app.delete('/api/tasks/:id', authenticate, (req, res) => {
   const row = taskResult[0]?.values[0];
   const boardId = row ? row[1] : null;
   db.run('DELETE FROM tasks WHERE id = ?', [req.params.id]);
-saveDb();
+  saveDb();
   if (boardId) io.to(`board-${boardId}`).emit('task-deleted', parseInt(req.params.id));
   res.json({ success: true });
 });
@@ -427,6 +433,14 @@ io.on('connection', (socket) => {
     }
   });
 });
+
+if (isProduction) {
+  const clientDist = path.join(__dirname, '..', 'client', 'dist');
+  app.use(express.static(clientDist));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
 
 initDb().then(() => {
   server.listen(PORT, () => {
