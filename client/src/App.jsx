@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { io } from 'socket.io-client';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -219,16 +219,22 @@ function DocumentListPage() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    loadDocuments();
-  }, [user.token]);
-
-  const loadDocuments = async () => {
+  const loadDocuments = useCallback(async () => {
     setLoading(true);
     const docs = await api.getDocuments(user.token);
     setDocuments(docs);
     setLoading(false);
-  };
+  }, [user.token]);
+
+  useEffect(() => {
+    loadDocuments();
+    socket.on('document-deleted', loadDocuments);
+    socket.on('documents-updated', loadDocuments);
+    return () => {
+      socket.off('document-deleted', loadDocuments);
+      socket.off('documents-updated', loadDocuments);
+    };
+  }, [loadDocuments]);
 
   const createDocument = async () => {
     if (!newTitle.trim()) return;
@@ -271,6 +277,9 @@ function DocumentListPage() {
               <div key={doc.id} className="card card-hover" onClick={() => navigate(`/documents/${doc.id}`)}>
                 <div className="card-title">{doc.title}</div>
                 <div className="card-meta">Updated {new Date(doc.updated_at).toLocaleDateString()}</div>
+                <button className="btn btn-danger btn-sm card-delete-btn" onClick={(e) => deleteDocument(doc.id, e)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><polyline points="3,6 5,6 21,6"/><path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </button>
               </div>
             ))}
           </div>
@@ -333,6 +342,10 @@ const shareDocument = async () => {
       if (data.content) setContent(data.content);
     });
 
+    socket.on('document-deleted', ({ id: deletedId }) => {
+      if (parseInt(deletedId) === parseInt(id)) navigate('/documents');
+    });
+
     socket.on('user-joined', u => {
       setCollaborators(prev => [...prev.filter(c => c.id !== u.id), u]);
     });
@@ -344,6 +357,7 @@ const shareDocument = async () => {
     return () => {
       socket.emit('leave-document', { documentId: id });
       socket.off('document-update');
+      socket.off('document-deleted');
       socket.off('user-joined');
       socket.off('user-left');
     };
@@ -389,6 +403,10 @@ const shareDocument = async () => {
             Back
           </button>
           <button className="btn btn-primary" onClick={() => setShowShare(true)}>Share</button>
+          <button className="btn btn-danger" onClick={() => { deleteDocument(docId, { stopPropagation: () => {} }); navigate('/documents'); }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><polyline points="3,6 5,6 21,6"/><path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+            Delete
+          </button>
         </div>
       </header>
       <div className="editor-container">
@@ -430,15 +448,36 @@ function TaskBoardListPage() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    loadBoards();
-  }, [user.token]);
-
-const loadBoards = async () => {
+  const loadBoards = useCallback(async () => {
     setLoading(true);
     const data = await api.getBoards(user.token);
     setBoards(data);
     setLoading(false);
+  }, [user.token]);
+
+  useEffect(() => {
+    loadBoards();
+    socket.on('board-deleted', loadBoards);
+    socket.on('boards-updated', loadBoards);
+    return () => {
+      socket.off('board-deleted', loadBoards);
+      socket.off('boards-updated', loadBoards);
+    };
+  }, [loadBoards]);
+
+  const createBoard = async () => {
+    if (!newName.trim()) return;
+    const board = await api.createBoard(user.token, { name: newName });
+    setShowModal(false);
+    setNewName('');
+    loadBoards();
+    navigate(`/tasks/${board.id}`);
+  };
+
+  const deleteBoard = async (id, e) => {
+    e.stopPropagation();
+    await api.deleteBoard(user.token, id);
+    loadBoards();
   };
 
   return (
@@ -468,6 +507,9 @@ const loadBoards = async () => {
               <div key={board.id} className="card card-hover" onClick={() => navigate(`/tasks/${board.id}`)}>
                 <div className="card-title">{board.name}</div>
                 <div className="card-meta">Created {new Date(board.created_at).toLocaleDateString()}</div>
+                <button className="btn btn-danger btn-sm card-delete-btn" onClick={(e) => deleteBoard(board.id, e)}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><polyline points="3,6 5,6 21,6"/><path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </button>
               </div>
             ))}
           </div>
@@ -535,11 +577,16 @@ function TaskBoardPage() {
       setTasks(prev => prev.filter(t => t.id !== taskId));
     });
 
+    socket.on('board-deleted', ({ id: deletedId }) => {
+      if (parseInt(deletedId) === parseInt(id)) navigate('/tasks');
+    });
+
     return () => {
       socket.emit('leave-board', { boardId: id });
       socket.off('task-updated');
       socket.off('task-moved');
       socket.off('task-deleted');
+      socket.off('board-deleted');
     };
   }, [id]);
 
@@ -616,6 +663,10 @@ function TaskBoardPage() {
             Back
           </button>
           <button className="btn btn-primary" onClick={() => setShowShare(true)}>Share</button>
+          <button className="btn btn-danger" onClick={() => { api.deleteBoard(user.token, id); navigate('/tasks'); }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16"><polyline points="3,6 5,6 21,6"/><path d="M19,6v14a2,2,0,0,1-2,2H7a2,2,0,0,1-2-2V6m3,0V4a2,2,0,0,1,2-2h4a2,2,0,0,1,2,2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+            Delete
+          </button>
         </div>
       </header>
       <div className="page-content">

@@ -3,6 +3,5 @@ dist/
 .env
 *.db
 collabspace.db
-.DS_Store
-*.md
+.DS_Store*.md
 !README.md
